@@ -12,13 +12,16 @@ import (
 	streamClient "github.com/taubyte/tau/p2p/streams/client"
 	"github.com/taubyte/tau/p2p/streams/command"
 	"github.com/taubyte/tau/p2p/streams/command/response"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/pkg/sensors"
+	"github.com/taubyte/tau/utils/maps"
 
 	"github.com/taubyte/tau/services/common"
 )
 
-func New(ctx context.Context, node peer.Node) (client iface.Client, err error) {
-	c := &Client{}
+func New(ctx context.Context, node peer.Node, registry *sensors.Registry) (client iface.Client, err error) {
+	c := &Client{
+		sensors: registry,
+	}
 	c.client, err = streamClient.New(node, common.SeerProtocol)
 	if err != nil {
 		logger.Error("API client creation failed: %s", err)
@@ -136,16 +139,16 @@ func (b *GeoBeacon) Start() {
 
 		for {
 			select {
+			case <-b.ctx.Done():
+				b.cleanStatus()
+				b.status = ErrorGeoBeaconStopped
+				return
 			case <-time.After(DefaultGeoBeaconInterval):
 				if err = b.updateLocation(); err != nil {
 					b._status <- err
 				}
 			case err = <-b._status:
 				b.status = err
-			case <-b.ctx.Done():
-				b.cleanStatus()
-				b.status = ErrorGeoBeaconStopped
-				return
 			}
 		}
 	}()

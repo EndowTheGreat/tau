@@ -1,7 +1,6 @@
 package structure
 
 import (
-	"github.com/mitchellh/mapstructure"
 	"github.com/taubyte/tau/clients/p2p/tns/structure"
 	"github.com/taubyte/tau/core/services/tns"
 	databaseSpec "github.com/taubyte/tau/pkg/specs/database"
@@ -14,13 +13,14 @@ import (
 	storageSpec "github.com/taubyte/tau/pkg/specs/storage"
 	structureSpec "github.com/taubyte/tau/pkg/specs/structure"
 	websiteSpec "github.com/taubyte/tau/pkg/specs/website"
+	"github.com/taubyte/tau/utils/mapstructure"
 )
 
 var FakeFetchMethod = func(tns.Path) (tns.Object, error) {
 	return nil, nil
 }
 
-var FakeCurrentMethod = func(r tns.Object, branch string) ([]tns.Path, error) {
+var FakeCurrentMethod = func(r tns.Object, branches []string) ([]tns.Path, error) {
 	return nil, nil
 }
 
@@ -50,8 +50,8 @@ func (f ResponseObject) Path() tns.Path {
 	return f.InnerPath
 }
 
-func (f ResponseObject) Current(branch string) ([]tns.Path, error) {
-	return FakeCurrentMethod(f, branch)
+func (f ResponseObject) Current(branches []string) ([]tns.Path, error) {
+	return FakeCurrentMethod(f, branches)
 }
 
 func (tc *TestClient) Simple() tns.SimpleIface {

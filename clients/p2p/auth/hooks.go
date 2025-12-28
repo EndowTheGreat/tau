@@ -6,7 +6,7 @@ import (
 
 	iface "github.com/taubyte/tau/core/services/auth"
 	"github.com/taubyte/tau/p2p/streams/command"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
 func (c *Client) Hooks() iface.Hooks {
@@ -23,8 +23,6 @@ func (h *Hooks) New(obj map[string]interface{}) (iface.Hook, error) {
 	if err != nil {
 		return nil, errors.New("Creating hook: " + err.Error())
 	}
-
-	logger.Error(obj)
 
 	switch provider {
 	case "github":

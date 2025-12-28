@@ -16,7 +16,7 @@ import (
 	smartopsSpec "github.com/taubyte/tau/pkg/specs/smartops"
 	structureSpec "github.com/taubyte/tau/pkg/specs/structure"
 	"github.com/taubyte/tau/services/monkey/jobs"
-	"github.com/taubyte/utils/bundle"
+	"github.com/taubyte/tau/utils/bundle"
 )
 
 type smartopsContext struct {
@@ -83,13 +83,15 @@ func (f smartopsContext) codeFile(language wasmSpec.SupportedLanguage) error {
 
 	c := jobs.Context{
 		Node:    f.ctx.universe.TNS().Node(),
-		LogFile: nil,
+		LogFile: os.Stdout,
 		WorkDir: root,
 		Monkey: fakeMonkey{
 			hoarderClient: f.ctx.hoarderClient,
 		},
 		GeneratedDomainRegExp: generatedDomainRegExp,
 	}
+
+	c.ForceContext(f.ctx.universe.Context())
 
 	copyPath := path.Join(root, smartopsSpec.PathVariable.String(), f.config.Name)
 	for _, filePath := range f.ctx.paths {
@@ -120,7 +122,7 @@ func (f smartopsContext) codeFile(language wasmSpec.SupportedLanguage) error {
 	}
 	smartops.Set(true, smartopsLib.Id(f.ctx.resourceId))
 
-	moduleReader, err := c.HandleOp(jobs.ToOp(smartops), os.Stdout)
+	moduleReader, err := c.HandleOp(jobs.ToOp(smartops))
 	if err != nil {
 		return err
 	}
@@ -135,12 +137,12 @@ func (f smartopsContext) overrideConfigCall() error {
 		return err
 	}
 
-	commit, err := tns.Simple().Commit(f.ctx.projectId, f.ctx.branch)
+	commit, branch, err := tns.Simple().Commit(f.ctx.projectId, f.ctx.branch)
 	if err != nil {
 		return err
 	}
 
-	path, err := smartopsSpec.Tns().BasicPath(f.ctx.branch, commit, f.ctx.projectId, f.ctx.applicationId, f.config.Id)
+	path, err := smartopsSpec.Tns().BasicPath(branch, commit, f.ctx.projectId, f.ctx.applicationId, f.config.Id)
 	if err != nil {
 		return err
 	}

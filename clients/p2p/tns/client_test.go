@@ -10,14 +10,20 @@ import (
 	iface "github.com/taubyte/tau/core/services/tns"
 	"github.com/taubyte/tau/dream"
 	spec "github.com/taubyte/tau/pkg/specs/common"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 var _ iface.Client = &p2p.Client{}
 
 func TestTNSClient(t *testing.T) {
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	err := u.StartWithConfig(&dream.Config{
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
+
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
+	err = u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"tns": {},
 		},
@@ -33,7 +39,6 @@ func TestTNSClient(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	defer u.Stop()
 
 	simple, err := u.Simple("client")
 	if err != nil {

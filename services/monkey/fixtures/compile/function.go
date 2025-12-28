@@ -18,7 +18,7 @@ import (
 	functionSpec "github.com/taubyte/tau/pkg/specs/function"
 	structureSpec "github.com/taubyte/tau/pkg/specs/structure"
 	"github.com/taubyte/tau/services/monkey/jobs"
-	"github.com/taubyte/utils/bundle"
+	"github.com/taubyte/tau/utils/bundle"
 )
 
 var generatedDomainRegExp = regexp.MustCompile(`^[^.]+\.g\.tau\.link$`)
@@ -80,14 +80,14 @@ func (f functionContext) zWasmFile() error {
 }
 
 func (f functionContext) codeFile(language wasmSpec.SupportedLanguage) error {
-	root, err := os.MkdirTemp("/tmp", fmt.Sprintf("%s-*", f.ctx.resourceId))
+	root, err := os.MkdirTemp("", fmt.Sprintf("%s-*", f.ctx.resourceId))
 	if err != nil {
 		return err
 	}
 
 	c := jobs.Context{
 		Node:     f.ctx.universe.TNS().Node(),
-		LogFile:  nil,
+		LogFile:  os.Stdout,
 		WorkDir:  root,
 		RepoType: common.CodeRepository,
 		Monkey: fakeMonkey{
@@ -125,7 +125,7 @@ func (f functionContext) codeFile(language wasmSpec.SupportedLanguage) error {
 	}
 	function.Set(true, functions.Id(f.ctx.resourceId))
 
-	moduleReader, err := c.HandleOp(jobs.ToOp(function), os.Stdout)
+	moduleReader, err := c.HandleOp(jobs.ToOp(function))
 	if err != nil {
 		return err
 	}
@@ -140,12 +140,12 @@ func (f functionContext) overrideConfigCall() error {
 		return err
 	}
 
-	commit, err := tns.Simple().Commit(f.ctx.projectId, f.ctx.branch)
+	commit, branch, err := tns.Simple().Commit(f.ctx.projectId, f.ctx.branch)
 	if err != nil {
 		return err
 	}
 
-	path, err := functionSpec.Tns().BasicPath(f.ctx.branch, commit, f.ctx.projectId, f.ctx.applicationId, f.config.Id)
+	path, err := functionSpec.Tns().BasicPath(branch, commit, f.ctx.projectId, f.ctx.applicationId, f.config.Id)
 	if err != nil {
 		return err
 	}

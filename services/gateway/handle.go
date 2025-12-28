@@ -7,9 +7,9 @@ import (
 
 	goHttp "net/http"
 
-	http "github.com/taubyte/http"
 	"github.com/taubyte/tau/p2p/streams/client"
 	tunnel "github.com/taubyte/tau/p2p/streams/tunnels/http"
+	http "github.com/taubyte/tau/pkg/http"
 	functionSpec "github.com/taubyte/tau/pkg/specs/function"
 	websiteSpec "github.com/taubyte/tau/pkg/specs/website"
 	"github.com/taubyte/tau/services/substrate/components/metrics"
@@ -20,8 +20,8 @@ func (g *Gateway) attach() {
 		PathPrefix: "/",
 		Handler: func(w goHttp.ResponseWriter, r *goHttp.Request) {
 			if err := g.handleHttp(w, r); err != nil {
-				w.Write([]byte(err.Error()))
 				w.WriteHeader(500)
+				w.Write([]byte(err.Error()))
 			}
 		},
 	})
@@ -66,7 +66,6 @@ func (g *Gateway) handleHttp(w goHttp.ResponseWriter, r *goHttp.Request) error {
 			}
 		}
 
-		// all else
 		discard = append(discard, response)
 	}
 	defer func() {

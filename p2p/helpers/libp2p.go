@@ -169,9 +169,8 @@ func SetupLibp2p(
 		libp2p.PrivateNetwork(secret),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			extraopts := make([]dual.Option, 0)
-			bpeer := bootstrapPeerFunc()
-			if len(bpeer) != 0 {
-				extraopts = append(extraopts, dual.WanDHTOption(dht.BootstrapPeers(bpeer...)))
+			if bootstrapPeerFunc != nil {
+				extraopts = append(extraopts, dual.WanDHTOption(dht.BootstrapPeersFunc(bootstrapPeerFunc)))
 			}
 			idht, err = newDHT(ctx, h, ds, extraopts...)
 			return idht, err
@@ -244,9 +243,9 @@ func newPeerSource(hostGetter func() host.Host, dhtGetter func() *dual.DHT) auto
 			// Attempt to put peers on r if we have space,
 			// otherwise return (we reached numPeers)
 			select {
-			case r <- dhtPeer:
 			case <-ctx.Done():
 				return r
+			case r <- dhtPeer:
 			default:
 				return r
 			}
@@ -273,7 +272,7 @@ func Bootstrap(ctx context.Context, h host.Host, dht routing.Routing, peers []pe
 			if err != nil {
 				return
 			}
-			h.ConnManager().TagPeer(pinfo.ID, "bootstrap", 42)
+			h.ConnManager().Protect(pinfo.ID, "bootstrap")
 
 			connected <- struct{}{}
 		}(pinfo)

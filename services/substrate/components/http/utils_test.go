@@ -15,7 +15,7 @@ import (
 	"github.com/taubyte/tau/services/substrate/components/http/common"
 	"github.com/taubyte/tau/services/substrate/components/structure"
 	"github.com/taubyte/tau/services/substrate/runtime/cache"
-	slices "github.com/taubyte/utils/slices/string"
+	slices "github.com/taubyte/tau/utils/slices/string"
 )
 
 var (
@@ -58,7 +58,7 @@ func fakeFetch(client tns.Client, websites map[string]structureSpec.Website, fun
 
 		return false
 	}
-	structure.FakeCurrentMethod = func(r tns.Object, branch string) ([]tns.Path, error) {
+	structure.FakeCurrentMethod = func(r tns.Object, branches []string) ([]tns.Path, error) {
 
 		tnsPaths := make([]tns.Path, 0)
 		slice := r.Path().Slice()

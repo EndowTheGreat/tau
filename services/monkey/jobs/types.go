@@ -6,12 +6,12 @@ import (
 	"os"
 	"regexp"
 
-	ci "github.com/taubyte/go-simple-container"
 	"github.com/taubyte/tau/core/services/monkey"
 	"github.com/taubyte/tau/core/services/patrick"
 	"github.com/taubyte/tau/core/services/tns"
 	"github.com/taubyte/tau/p2p/peer"
 	compilerCommon "github.com/taubyte/tau/pkg/config-compiler/common"
+	ci "github.com/taubyte/tau/pkg/containers"
 )
 
 type Context struct {
@@ -45,6 +45,7 @@ type Op struct {
 	name         string
 	application  string
 	pathVariable string
+	err          error
 }
 
 type code struct{ Context }

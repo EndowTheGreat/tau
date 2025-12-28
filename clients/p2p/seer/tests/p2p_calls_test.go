@@ -7,27 +7,33 @@ import (
 
 	commonIface "github.com/taubyte/tau/core/common"
 	"github.com/taubyte/tau/dream"
+	"gotest.tools/v3/assert"
 
-	_ "github.com/taubyte/tau/services/auth"
-	_ "github.com/taubyte/tau/services/hoarder"
-	_ "github.com/taubyte/tau/services/monkey"
-	_ "github.com/taubyte/tau/services/patrick"
-	_ "github.com/taubyte/tau/services/substrate"
-	_ "github.com/taubyte/tau/services/tns"
+	_ "github.com/taubyte/tau/services/auth/dream"
+	_ "github.com/taubyte/tau/services/hoarder/dream"
+	_ "github.com/taubyte/tau/services/monkey/dream"
+	_ "github.com/taubyte/tau/services/patrick/dream"
+	_ "github.com/taubyte/tau/services/substrate/dream"
+	_ "github.com/taubyte/tau/services/tns/dream"
 
-	seer "github.com/taubyte/tau/clients/p2p/seer"
+	_ "github.com/taubyte/tau/clients/p2p/tns/dream"
+
+	seerClient "github.com/taubyte/tau/clients/p2p/seer"
 )
 
 func TestCalls(t *testing.T) {
-	defaultInterval := seer.DefaultUsageBeaconInterval
-	seer.DefaultUsageBeaconInterval = time.Second
-	defer func() {
-		seer.DefaultUsageBeaconInterval = defaultInterval
-	}()
+	seerClient.DefaultUsageBeaconInterval = 100 * time.Millisecond
+	seerClient.DefaultAnnounceBeaconInterval = 100 * time.Millisecond
+	seerClient.DefaultGeoBeaconInterval = 100 * time.Millisecond
 
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	defer u.Stop()
-	err := u.StartWithConfig(&dream.Config{
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
+
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
+	err = u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"seer": {Others: map[string]int{"mock": 1}},
 			"auth": {Others: map[string]int{"copies": 2}},
@@ -60,27 +66,16 @@ func TestCalls(t *testing.T) {
 		return
 	}
 
-	ids, err := seerClient.Usage().ListServiceId("auth")
+	serviceIds, err := seerClient.Usage().ListServiceId("auth")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	serviceIds, err := ids.Get("ids")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	fmt.Println("IDSSS ", serviceIds)
+	fmt.Println("serviceIds: ", serviceIds)
 
-	serviceIds2, ok := serviceIds.([]interface{})
-	if !ok {
-		t.Errorf("serviceIds %#v is not []interface{}", nil)
-		return
-	}
-
-	if len(serviceIds2) != 2 {
-		t.Errorf("Expected 2 nodes got %d", len(serviceIds2))
+	if len(serviceIds) != 2 {
+		t.Errorf("Expected 2 nodes got %d", len(serviceIds))
 	}
 
 }

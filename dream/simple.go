@@ -14,6 +14,9 @@ import (
 	tnsIface "github.com/taubyte/tau/core/services/tns"
 	"github.com/taubyte/tau/p2p/keypair"
 	commonSpecs "github.com/taubyte/tau/pkg/specs/common"
+	"golang.org/x/exp/slices"
+
+	peerCore "github.com/libp2p/go-libp2p/core/peer"
 
 	peer "github.com/taubyte/tau/p2p/peer"
 )
@@ -137,15 +140,22 @@ func (u *Universe) CreateSimpleNode(name string, config *SimpleConfig) (peer.Nod
 		config.Port = u.portShift + lastSimplePort()
 	}
 
-	simpleNode, err := peer.New(
+	upeers := u.Peers()
+	bpeers := make([]peerCore.AddrInfo, 0, len(upeers))
+	for _, n := range upeers {
+		if pi, err := peerCore.AddrInfoFromP2pAddr(n.Peer().Addrs()[0]); err == nil {
+			bpeers = append(bpeers, *pi)
+		}
+	}
+
+	simpleNode, err := peer.NewLitePublic(
 		u.ctx,
 		fmt.Sprintf("%s/simple-%s-%d", u.root, name, config.Port),
 		keypair.NewRaw(),
 		u.swarmKey,
 		[]string{fmt.Sprintf(DefaultP2PListenFormat, config.Port)},
 		[]string{fmt.Sprintf(DefaultP2PListenFormat, config.Port)},
-		false,
-		false,
+		peer.BootstrapParams{Enable: len(bpeers) > 0, Peers: bpeers},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating me error: %v", err)
@@ -153,8 +163,11 @@ func (u *Universe) CreateSimpleNode(name string, config *SimpleConfig) (peer.Nod
 
 	simple := &Simple{Node: simpleNode, clients: make(map[string]commonIface.Client)}
 	for name, clientCfg := range config.Clients {
-		if err = simple.startClient(name, clientCfg); err != nil {
-			return nil, fmt.Errorf("starting client `%s` failed with: %w", name, err)
+		// make sure the client asked for is a valid client
+		if slices.Contains(commonSpecs.Clients, name) {
+			if err = simple.startClient(name, clientCfg); err != nil {
+				return nil, fmt.Errorf("starting client `%s` failed with: %w", name, err)
+			}
 		}
 	}
 

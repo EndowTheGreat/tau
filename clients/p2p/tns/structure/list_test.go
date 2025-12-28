@@ -3,18 +3,23 @@ package structure_test
 import (
 	"testing"
 
-	_ "github.com/taubyte/tau/clients/p2p/tns"
+	_ "github.com/taubyte/tau/clients/p2p/tns/dream"
 	commonIface "github.com/taubyte/tau/core/common"
 	"github.com/taubyte/tau/dream"
 	_ "github.com/taubyte/tau/pkg/config-compiler/fixtures"
 	structureSpec "github.com/taubyte/tau/pkg/specs/structure"
-	_ "github.com/taubyte/tau/services/tns"
+	_ "github.com/taubyte/tau/services/tns/dream"
 	"gotest.tools/v3/assert"
 )
 
 func TestList(t *testing.T) {
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	defer u.Stop()
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
+
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
 	u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"tns": {},
@@ -28,7 +33,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	err := u.RunFixture("fakeProject")
+	err = u.RunFixture("fakeProject")
 	if err != nil {
 		t.Error(err)
 		return
@@ -123,7 +128,7 @@ func TestList(t *testing.T) {
 }
 
 func (s testStructure[T]) runListTest() bool {
-	all, err := s.iface.All(testProjectId, testAppId, testBranch).List()
+	all, _, _, err := s.iface.All(testProjectId, testAppId, testBranches...).List()
 	if err != nil {
 		s.t.Error(err)
 		return false
@@ -133,7 +138,7 @@ func (s testStructure[T]) runListTest() bool {
 		return false
 	}
 
-	global, err := s.iface.Global(testProjectId, testBranch).List()
+	global, _, _, err := s.iface.Global(testProjectId, testBranches...).List()
 	if err != nil {
 		s.t.Error(err)
 		return false
@@ -143,7 +148,7 @@ func (s testStructure[T]) runListTest() bool {
 		return false
 	}
 
-	relative, err := s.iface.Relative(testProjectId, testAppId, testBranch).List()
+	relative, _, _, err := s.iface.Relative(testProjectId, testAppId, testBranches...).List()
 	if err != nil {
 		s.t.Error(err)
 		return false

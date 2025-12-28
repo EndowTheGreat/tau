@@ -1,11 +1,11 @@
 package jobs
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path"
-	"sync"
+	"time"
 
 	"github.com/taubyte/tau/core/builders"
 	build "github.com/taubyte/tau/pkg/builder"
@@ -41,76 +41,42 @@ func (c code) handleOps(ops []Op) error {
 		return nil
 	}
 
-	var (
-		mainHandleErr error
-		errLock       sync.Mutex
-		doneCount     int
-
-		errChan  = make(chan error, 1)
-		doneChan = make(chan bool, 1)
-	)
-
 	for _, op := range ops {
-		logFile, err := os.CreateTemp("/tmp", fmt.Sprintf("log-%s", op.id))
-		if err != nil {
-			return fmt.Errorf("creating log temp-file failed with: %s", err)
-		}
-
-		go func(_op Op, log *os.File) {
-			if handleErr := c.handleOp(_op, log); handleErr != nil {
-				errChan <- handleErr
-			}
-
-			doneChan <- true
-			log.Close()
-		}(op, logFile)
-	}
-
-	for {
-		select {
-		case err := <-errChan:
-			if err != nil {
-				errLock.Lock()
-				if mainHandleErr != nil {
-					mainHandleErr = fmt.Errorf("%s && %s", mainHandleErr, err)
-				} else {
-					mainHandleErr = err
-				}
-				errLock.Unlock()
-			}
-		case <-doneChan:
-			doneCount++
-			if doneCount == len(ops) {
-				return mainHandleErr
-			}
+		op.err = c.handleOp(op)
+		if op.err != nil {
+			fmt.Fprintf(c.LogFile, "Error building %s: %s\n", op.name, op.err.Error())
+			return op.err
 		}
 	}
+
+	return nil
 }
 
-func (c code) handleOp(op Op, logFile *os.File) error {
-	moduleReader, err := c.HandleOp(op, logFile)
-	if moduleReader != nil {
-		defer moduleReader.Close()
+func (c code) handleOp(op Op) error {
+	moduleReader, err := c.HandleOp(op)
+	if err != nil {
+		return err
 	}
+	defer moduleReader.Close()
 
-	if err := c.handleBuildDetails(op.id, moduleReader, logFile); err != nil {
+	if err := c.handleCompressedBuild(op.id, moduleReader); err != nil {
 		return fmt.Errorf("handling build details failed with: %s", err)
 	}
 
 	return err
 }
 
-func (c Context) HandleOp(op Op, logFile *os.File) (rsk io.ReadSeekCloser, err error) {
+func (c Context) HandleOp(op Op) (io.ReadSeekCloser, error) {
 	sourcePath := path.Join(c.gitDir, op.application, op.pathVariable, op.name)
-	builder, err := build.New(c.ctx, sourcePath)
+	builder, err := build.New(c.ctx, c.LogFile, sourcePath)
 	if err != nil {
 		err = fmt.Errorf("creating new wasm builder failed with: %w", err)
-		return
+		return nil, err
 	}
 
 	var asset builders.Output
 	defer func() {
-		handleAsset(&asset, logFile, &err)
+		fmt.Fprintf(c.LogFile, "Building %s -----\n", op.name)
 		builder.Close()
 	}()
 
@@ -133,20 +99,51 @@ func (c *code) checkConfig() error {
 			return fmt.Errorf("failed fetch config ssh url with: %s", err)
 		}
 
+		json.NewEncoder(c.LogFile).Encode(struct {
+			Op        string `json:"op"`
+			Url       string `json:"url"`
+			Branch    string `json:"branch"`
+			Timestamp int64  `json:"timestamp"`
+		}{
+			Op:        "git-clone",
+			Url:       url,
+			Branch:    c.Job.Meta.Repository.Branch,
+			Timestamp: time.Now().UnixNano(),
+		})
 		configRepo, err := git.New(
 			c.ctx,
 			git.URL(url),
 			git.SSHKey(c.ConfigPrivateKey),
 			git.Temporary(),
 			git.Branch(c.Job.Meta.Repository.Branch),
-			// uncomment to keep directory
-			// git.Preserve(),
+			git.Output(c.LogFile),
 		)
 		if err != nil {
+			json.NewEncoder(c.LogFile).Encode(struct {
+				Op        string `json:"op"`
+				Status    string `json:"status"`
+				Timestamp int64  `json:"timestamp"`
+				Error     string `json:"error"`
+			}{
+				Op:        "git-clone",
+				Status:    "error",
+				Error:     err.Error(),
+				Timestamp: time.Now().UnixNano(),
+			})
 			return fmt.Errorf("getting git repo from url `%s` failed with: %s", url, err)
 		}
 
 		c.ConfigRepoRoot = configRepo.Root()
+
+		json.NewEncoder(c.LogFile).Encode(struct {
+			Op        string `json:"op"`
+			Status    string `json:"status"`
+			Timestamp int64  `json:"timestamp"`
+		}{
+			Op:        "git-clone",
+			Status:    "success",
+			Timestamp: time.Now().UnixNano(),
+		})
 	}
 
 	return nil

@@ -1,12 +1,14 @@
 package auto
 
 import (
-	"crypto/tls"
+	"time"
 
-	basicHttp "github.com/taubyte/http/basic"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/taubyte/tau/config"
 	auth "github.com/taubyte/tau/core/services/auth"
 	ifaceTns "github.com/taubyte/tau/core/services/tns"
+	basicHttp "github.com/taubyte/tau/pkg/http/basic"
+	"github.com/taubyte/tau/pkg/http/options"
 	acme "github.com/taubyte/tau/services/auth/acme/store"
 )
 
@@ -17,5 +19,14 @@ type Service struct {
 	authClient          auth.Client
 	tnsClient           ifaceTns.Client
 	config              *config.Node
-	customDomainChecker func(hello *tls.ClientHelloInfo) bool
+	customDomainChecker func(host string) bool
+	acme                *options.OptionACME
+
+	positiveCache *ttlcache.Cache[string, bool]
+	negativeCache *ttlcache.Cache[string, bool]
 }
+
+var (
+	PositiveTTL = 1 * time.Hour
+	NegativeTTL = 1 * time.Minute
+)

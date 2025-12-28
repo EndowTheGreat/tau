@@ -17,7 +17,7 @@ import (
 	peer "github.com/libp2p/go-libp2p/core/peer"
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
-	dirutils "github.com/taubyte/utils/fs/dir"
+	dirutils "github.com/taubyte/tau/utils/fs/dir"
 
 	"github.com/libp2p/go-libp2p/core/pnet"
 
@@ -242,7 +242,7 @@ func new(ctx context.Context, repoPath interface{}, privateKey []byte, swarmKey 
 	}
 
 	// Create ipfs node
-	p.ipfs, err = ipfslite.New(p.ctx, p.store, nil, p.host, p.dht, nil)
+	p.ipfs, err = ipfslite.New(p.ctx, p.store, nil, p.host, p.dht, &ipfslite.Config{})
 	if err != nil {
 		return nil, err
 	}
@@ -273,25 +273,21 @@ func new(ctx context.Context, repoPath interface{}, privateKey []byte, swarmKey 
 	}
 
 	// Prep Discoverer
-	p.drouter = discovery.NewRoutingDiscovery(p.dht)
 	minBackoff, maxBackoff := time.Second*60, time.Hour
 	rng := rand.New(rand.NewSource(rand.Int63()))
-	_drouter, err := discoveryBackoff.NewBackoffDiscovery(
-		p.drouter,
+	p.drouter, err = discoveryBackoff.NewBackoffDiscovery(
+		discovery.NewRoutingDiscovery(p.dht),
 		discoveryBackoff.NewExponentialBackoff(minBackoff, maxBackoff, discoveryBackoff.FullJitter, time.Second, 5.0, 0, rng),
 	)
-
 	if err != nil {
 		return nil, err
 	}
-
-	p.drouter = _drouter
 
 	// Prep messaging PUBSUB
 	p.messaging, err = pubsub.NewGossipSub(
 		p.ctx,
 		p.host,
-		pubsub.WithDiscovery(_drouter),
+		pubsub.WithDiscovery(p.drouter),
 		pubsub.WithFloodPublish(true),
 		pubsub.WithMessageSigning(true),
 		pubsub.WithStrictSignatureVerification(true),

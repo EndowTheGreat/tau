@@ -7,14 +7,19 @@ import (
 	commonIface "github.com/taubyte/tau/core/common"
 	iface "github.com/taubyte/tau/core/services/seer"
 	"github.com/taubyte/tau/dream"
-	_ "github.com/taubyte/tau/services/gateway"
+	_ "github.com/taubyte/tau/services/gateway/dream"
 	"gotest.tools/v3/assert"
 )
 
 func TestBasicUsage(t *testing.T) {
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	defer u.Stop()
-	err := u.StartWithConfig(&dream.Config{
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
+
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
+	err = u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"seer":      {Others: map[string]int{"mock": 1}},
 			"tns":       {},
@@ -39,28 +44,16 @@ func TestBasicUsage(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	simple, err := u.Simple("client")
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	simpleD, err := u.Simple("clientD")
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	hostname, err := os.Hostname()
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	// Testing Hearbeat and Announce
 	/* Client Heartbeat */
@@ -89,10 +82,7 @@ func TestBasicUsage(t *testing.T) {
 			StatCount: 11100,
 		},
 	}, hostname, "", "", nil)
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	/* Client Heartbeat */
 	_, err = seer.Usage().Heartbeat(&iface.UsageData{
@@ -117,10 +107,7 @@ func TestBasicUsage(t *testing.T) {
 			StatCount: 111,
 		},
 	}, hostname, "", "", nil)
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	/* ClientD Heartbeat*/
 	dSeer, err := simpleD.Seer()
@@ -148,8 +135,5 @@ func TestBasicUsage(t *testing.T) {
 			StatCount: 11,
 		},
 	}, hostname, "", "", nil)
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 }

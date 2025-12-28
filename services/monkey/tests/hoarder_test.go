@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/taubyte/tau/clients/p2p/hoarder/dream"
 	commonIface "github.com/taubyte/tau/core/common"
 	"github.com/taubyte/tau/dream"
 	_ "github.com/taubyte/tau/dream/fixtures"
@@ -13,22 +14,26 @@ import (
 	specs "github.com/taubyte/tau/pkg/specs/common"
 	"github.com/taubyte/tau/pkg/specs/methods"
 	structureSpec "github.com/taubyte/tau/pkg/specs/structure"
-	_ "github.com/taubyte/tau/services/hoarder"
-	_ "github.com/taubyte/tau/services/monkey"
+	_ "github.com/taubyte/tau/services/hoarder/dream"
+	_ "github.com/taubyte/tau/services/monkey/dream"
 	"github.com/taubyte/tau/services/monkey/fixtures/compile"
-	_ "github.com/taubyte/tau/services/patrick"
-	_ "github.com/taubyte/tau/services/seer"
-	_ "github.com/taubyte/tau/services/substrate"
-	_ "github.com/taubyte/tau/services/tns"
-	"github.com/taubyte/utils/id"
+	_ "github.com/taubyte/tau/services/patrick/dream"
+	_ "github.com/taubyte/tau/services/seer/dream"
+	_ "github.com/taubyte/tau/services/substrate/dream"
+	_ "github.com/taubyte/tau/services/tns/dream"
+	"github.com/taubyte/tau/utils/id"
 	"gotest.tools/v3/assert"
 )
 
 func TestHoarder(t *testing.T) {
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	defer u.Stop()
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
 
-	err := u.StartWithConfig(&dream.Config{
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
+	err = u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"seer":    {},
 			"hoarder": {},
@@ -83,6 +88,7 @@ func TestHoarder(t *testing.T) {
 		ProjectId:  projectId,
 		ResourceId: functionId,
 		Paths:      []string{path.Join(wd, "fixtures", "ping.zwasm")},
+		Branch:     specs.DefaultBranches[0],
 	})
 	assert.NilError(t, err)
 
@@ -94,7 +100,7 @@ func TestHoarder(t *testing.T) {
 	tns, err := simple.TNS()
 	assert.NilError(t, err)
 
-	assetKey, err := methods.GetTNSAssetPath(projectId, functionId, specs.DefaultBranch)
+	assetKey, err := methods.GetTNSAssetPath(projectId, functionId, specs.DefaultBranches[0])
 	assert.NilError(t, err)
 
 	obj, err := tns.Fetch(assetKey)

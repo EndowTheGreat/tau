@@ -6,12 +6,10 @@ import (
 
 	commonIface "github.com/taubyte/tau/core/services/substrate/components"
 	iface "github.com/taubyte/tau/core/services/substrate/components/pubsub"
-	spec "github.com/taubyte/tau/pkg/specs/common"
 	functionSpec "github.com/taubyte/tau/pkg/specs/function"
 	matcherSpec "github.com/taubyte/tau/pkg/specs/matcher"
 	"github.com/taubyte/tau/services/substrate/components/pubsub/common"
 	"github.com/taubyte/tau/services/substrate/components/pubsub/function"
-	"github.com/taubyte/tau/services/substrate/components/pubsub/websocket"
 	"github.com/taubyte/tau/services/substrate/runtime/lookup"
 )
 
@@ -19,7 +17,7 @@ var (
 	TheServiceables = []string{string(functionSpec.PathVariable)}
 )
 
-func (s *Service) Lookup(matcher *common.MatchDefinition) ([]iface.Serviceable, error) {
+func (s *Service) Lookup(matcher iface.MatchDefinition) ([]iface.Serviceable, error) {
 	serviceables, err := lookup.Lookup(s, matcher)
 	if err != nil {
 		return nil, fmt.Errorf("pubsub lookup failed with: %s", err)
@@ -41,7 +39,7 @@ func (s *Service) Lookup(matcher *common.MatchDefinition) ([]iface.Serviceable, 
 func (s *Service) CheckTns(_matcher commonIface.MatchDefinition) ([]commonIface.Serviceable, error) {
 	matcher := _matcher.(*common.MatchDefinition)
 
-	messagingContext, err := s.GetMessagingsMap(matcher)
+	messagingContext, commit, branch, err := s.getMessagingsMap(matcher)
 	if err != nil {
 		return nil, err
 	} else if !messagingContext.HasAny {
@@ -50,14 +48,14 @@ func (s *Service) CheckTns(_matcher commonIface.MatchDefinition) ([]commonIface.
 
 	var available = make([]commonIface.Serviceable, 0)
 	// get available websocket serviceables
-	if messagingContext.WebSocket.Len() > 0 {
-		serv, err := websocket.New(s, messagingContext.WebSocket, matcher)
-		if err != nil {
-			return nil, fmt.Errorf("creating websocket serviceable with `%v` failed with: %w", matcher, err)
-		}
+	// if messagingContext.WebSocket.Len() > 0 {
+	// 	serv, err := websocket.New(s, messagingContext.WebSocket, commit, branch, matcher)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("creating websocket serviceable with `%v` failed with: %w", matcher, err)
+	// 	}
 
-		available = append(available, serv)
-	}
+	// 	available = append(available, serv)
+	// }
 
 	if messagingContext.Function.Len() == 0 || matcher.WebSocket {
 		if len(available) == 0 {
@@ -66,7 +64,7 @@ func (s *Service) CheckTns(_matcher commonIface.MatchDefinition) ([]commonIface.
 		return available, nil
 	}
 
-	functions, err := s.Tns().Function().All(matcher.Project, matcher.Application, spec.DefaultBranch).List()
+	functions, commit, branch, err := s.Tns().Function().All(matcher.Project, matcher.Application, branch).List()
 	if err != nil {
 		common.Logger.Error("fetching functions list interface failed with:", err.Error())
 		return nil, err
@@ -79,7 +77,7 @@ func (s *Service) CheckTns(_matcher commonIface.MatchDefinition) ([]commonIface.
 		}
 
 		var serv commonIface.Serviceable
-		serv, err = function.New(s, messagingContext.Function, *objectPathIface, matcher)
+		serv, err = function.New(s, messagingContext.Function, *objectPathIface, commit, branch, matcher)
 		if err != nil {
 			common.Logger.Error("getting Serviceable function failed with:", err.Error())
 			continue

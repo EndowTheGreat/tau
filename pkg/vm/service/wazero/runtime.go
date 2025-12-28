@@ -10,6 +10,8 @@ import (
 	"github.com/taubyte/tau/core/vm"
 	"github.com/tetratelabs/wazero"
 	api "github.com/tetratelabs/wazero/api"
+
+	crand "crypto/rand"
 )
 
 func (r *runtime) Close() error {
@@ -72,6 +74,14 @@ func (r *runtime) Module(name string) (vm.ModuleInstance, error) {
 	return r.module(name)
 }
 
+func (r *runtime) Modules() []string {
+	modules := make([]string, 0, len(r.modules))
+	for name := range r.modules {
+		modules = append(modules, name)
+	}
+	return modules
+}
+
 func (r *runtime) module(name string) (vm.ModuleInstance, error) {
 	modInst := r.runtime.Module(name)
 	if modInst == nil {
@@ -121,6 +131,9 @@ func (r *runtime) module(name string) (vm.ModuleInstance, error) {
 }
 
 func (r *runtime) instantiate(name string, compiled wazero.CompiledModule, hasReady bool) (api.Module, error) {
+	if _, ok := r.modules[name]; ok {
+		return r.modules[name], nil
+	}
 
 	config := wazero.
 		NewModuleConfig().
@@ -131,9 +144,12 @@ func (r *runtime) instantiate(name string, compiled wazero.CompiledModule, hasRe
 		WithStderr(r.instance.outputErr).
 		WithArgs(name).
 		WithSysWalltime().
-		WithSysNanotime()
+		WithSysNanotime().
+		WithSysNanosleep().
+		WithRandSource(crand.Reader)
 
-	m, err := r.runtime.InstantiateModule(r.instance.ctx.Context(), compiled, config)
+	ctx := r.instance.ctx.Context()
+	m, err := r.runtime.InstantiateModule(ctx, compiled, config)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating compiled module `%s` failed with: %s", name, err)
 	}
@@ -141,17 +157,19 @@ func (r *runtime) instantiate(name string, compiled wazero.CompiledModule, hasRe
 	if _start := m.ExportedFunction("_start"); _start != nil {
 		if hasReady {
 			go func() {
-				_, r.wasiStartError = _start.Call(r.instance.ctx.Context())
-				if r.wasiStartError != nil {
-					r.wasiStartDone <- false
-				}
+				_start.Call(ctx)
 			}()
 
-			<-r.wasiStartDone
+			select {
+			case <-ctx.Done():
+			case <-r.wasiStartDone:
+			}
 		} else {
-			_start.Call(r.instance.ctx.Context())
+			_start.Call(ctx)
 		}
 	}
+
+	r.modules[name] = m
 
 	return m, nil
 }
@@ -168,8 +186,8 @@ func (r *runtime) defaultModuleFunctions() []*vm.HostModuleFunctionDefinition {
 			Name: "_sleep",
 			Handler: func(ctx context.Context, dur int64) {
 				select {
-				case <-time.After(time.Duration(dur)):
 				case <-ctx.Done():
+				case <-time.After(time.Duration(dur)):
 				}
 			},
 		},

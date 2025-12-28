@@ -8,7 +8,7 @@ import (
 
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/pnet"
-	"github.com/taubyte/utils/fs/dir"
+	"github.com/taubyte/tau/utils/fs/dir"
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 	"github.com/ipfs/go-cid"
@@ -45,7 +45,7 @@ type Node interface {
 	NewPubSubKeepAlive(ctx context.Context, cancel context.CancelFunc, name string) error
 	Peer() host.Host
 	Peering() PeeringService
-	Ping(pid string, count int) (int, time.Duration, error)
+	Ping(ctx context.Context, pid string, count int) (int, time.Duration, error)
 	PubSubPublish(ctx context.Context, name string, data []byte) error
 	PubSubSubscribe(name string, handler PubSubConsumerHandler, err_handler PubSubConsumerErrorHandler) error
 	PubSubSubscribeContext(ctx context.Context, name string, handler PubSubConsumerHandler, err_handler PubSubConsumerErrorHandler) error

@@ -7,17 +7,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
-	http "github.com/taubyte/http"
-	"github.com/taubyte/tau/core/services/patrick"
+	authIface "github.com/taubyte/tau/core/services/auth"
+	iface "github.com/taubyte/tau/core/services/patrick"
+	http "github.com/taubyte/tau/pkg/http"
 	patrickSpecs "github.com/taubyte/tau/pkg/specs/patrick"
 	servicesCommon "github.com/taubyte/tau/services/common"
-	"github.com/taubyte/utils/id"
+	"github.com/taubyte/tau/utils/id"
 	"gopkg.in/go-playground/webhooks.v5/github"
+
+	commonSpec "github.com/taubyte/tau/pkg/specs/common"
 )
+
+// GitHub webhook handlers
 
 func (srv *PatrickService) githubCheckHookAndExtractSecret(ctx http.Context) (interface{}, error) {
 	if servicesCommon.FakeSecret && srv.devMode {
@@ -44,8 +50,8 @@ func (srv *PatrickService) githubCheckHookAndExtractSecret(ctx http.Context) (in
 }
 
 func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, error) {
-	newJob := &patrick.Job{
-		Status:    patrick.JobStatusOpen,
+	newJob := &iface.Job{
+		Status:    iface.JobStatusOpen,
 		Timestamp: time.Now().Unix(),
 		Logs:      make(map[string]string),
 		AssetCid:  make(map[string]string),
@@ -58,7 +64,7 @@ func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, err
 	}
 
 	if servicesCommon.DelayJob {
-		newJob.Delay = &patrick.DelayConfig{
+		newJob.Delay = &iface.DelayConfig{
 			Time: int(servicesCommon.DelayJobTime),
 		}
 	}
@@ -67,6 +73,7 @@ func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, err
 	if err != nil {
 		return nil, fmt.Errorf("creating hook failed with %w", err)
 	}
+
 	// FIXME: move this logic to taubyte/http
 	req := ctx.Request()
 	req.Body = io.NopCloser(bytes.NewReader(ctx.Body()))
@@ -79,6 +86,7 @@ func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, err
 		}
 		return nil, fmt.Errorf("parsing hook failed with %w", err)
 	}
+
 	switch payload.(type) {
 	case github.PushPayload:
 		logger.Debugf("Hook triggred. Push: %v", payload)
@@ -99,25 +107,13 @@ func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, err
 		newJob.Meta.Repository.Provider = "github"
 		newJob.Id = job_id
 
-		logger.Info("payload", string(pl))
-		logger.Info("job:", newJob.Meta)
-
-		// Setting current branch and main branch
-		if newJob.Meta.Repository.MainBranch == "" {
-			newJob.Meta.Repository.MainBranch = newJob.Meta.Repository.Branch
-		}
 		newJob.Meta.Repository.Branch = strings.Replace(newJob.Meta.Ref, "refs/heads/", "", 1)
 
-		if newJob.Meta.Repository.MainBranch != newJob.Meta.Repository.Branch && !srv.devMode {
-			return nil, fmt.Errorf("only builds main branch `%s` got `%s`", newJob.Meta.Repository.MainBranch, newJob.Meta.Repository.Branch)
+		if !slices.Contains(commonSpec.DefaultBranches, newJob.Meta.Repository.Branch) && !srv.devMode {
+			return nil, fmt.Errorf("only builds main branches %v got `%s`", commonSpec.DefaultBranches, newJob.Meta.Repository.Branch)
 		}
 
-		err = srv.RegisterJob(ctx.Request().Context(), newJob)
-		if err != nil {
-			return nil, err
-		}
-
-		// Pushing useful information to tns for auth
+		// Pushing useful information to tns
 		repoInfo := map[string]string{
 			"id":  fmt.Sprintf("%d", newJob.Meta.Repository.ID),
 			"ssh": newJob.Meta.Repository.SSHURL,
@@ -128,13 +124,20 @@ func (srv *PatrickService) githubHookHandler(ctx http.Context) (interface{}, err
 			return nil, fmt.Errorf("failed registering new job repo %d into tns with error: %v", newJob.Meta.Repository.ID, err)
 		}
 
+		err = srv.RegisterJob(ctx.Request().Context(), newJob)
+		if err != nil {
+			return nil, fmt.Errorf("failed registering job with error: %w", err)
+		}
+
+		logger.Debugf("Got job: %#v", newJob)
+
 		return newJob, nil
 	default:
 		return nil, fmt.Errorf("this is not a push event. but a %T", payload)
 	}
 }
 
-func (srv *PatrickService) RegisterJob(ctx context.Context, newJob *patrick.Job) error {
+func (srv *PatrickService) RegisterJob(ctx context.Context, newJob *iface.Job) error {
 	job_byte, err := cbor.Marshal(newJob)
 	if err != nil {
 		return fmt.Errorf("failed cbor marshall on job structure with err: %w", err)
@@ -158,4 +161,9 @@ func (srv *PatrickService) RegisterJob(ctx context.Context, newJob *patrick.Job)
 	}
 
 	return nil
+}
+
+// Hook management
+func (srv *PatrickService) getHook(hookid string) (authIface.Hook, error) {
+	return srv.authClient.Hooks().Get(hookid)
 }

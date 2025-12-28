@@ -5,14 +5,15 @@ import (
 	"testing"
 
 	commonTest "github.com/taubyte/tau/dream/helpers"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 func TestRunLibraryBasic(t *testing.T) {
 	t.Skip("Needs to be redone")
-	u, err := startDreamland("testRunLibrary")
-	defer u.Stop()
+
+	u, cleanup, err := startDream(t)
 	assert.NilError(t, err)
+	defer cleanup()
 
 	simple, err := u.Simple("client")
 	assert.NilError(t, err)

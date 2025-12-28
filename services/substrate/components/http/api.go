@@ -6,8 +6,8 @@ import (
 
 	goHttp "net/http"
 
-	http "github.com/taubyte/http"
 	iface "github.com/taubyte/tau/core/services/substrate/components/http"
+	http "github.com/taubyte/tau/pkg/http"
 	"github.com/taubyte/tau/services/substrate/components/http/common"
 	"github.com/taubyte/tau/services/substrate/runtime/counter"
 	"github.com/taubyte/tau/services/substrate/runtime/helpers"
@@ -69,8 +69,8 @@ func (s *Service) handle(w goHttp.ResponseWriter, r *goHttp.Request) error {
 
 func (s *Service) Handler(w goHttp.ResponseWriter, r *goHttp.Request) {
 	if err := s.handle(w, r); err != nil {
-		w.Write([]byte(err.Error()))
 		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
 	}
 }
 

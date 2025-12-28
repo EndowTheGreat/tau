@@ -8,10 +8,12 @@ import (
 	iface "github.com/taubyte/tau/core/services/seer"
 	"github.com/taubyte/tau/p2p/streams/command"
 	"github.com/taubyte/tau/p2p/streams/command/response"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
 func (u *Usage) Heartbeat(usage *iface.UsageData, hostname, nodeId, clientNodeId string, signature []byte) (response.Response, error) {
+	logger.Debug("Heartbeat", "sending usage", usage)
+
 	usageData, err := cbor.Marshal(usage)
 	if err != nil {
 		return nil, err
@@ -21,6 +23,7 @@ func (u *Usage) Heartbeat(usage *iface.UsageData, hostname, nodeId, clientNodeId
 	if err != nil {
 		return nil, fmt.Errorf("calling heartbeat send failed with: %w", err)
 	}
+
 	return resp, nil
 }
 
@@ -69,12 +72,17 @@ func (u *Usage) Get(id string) (*iface.UsageReturn, error) {
 	return usage, nil
 }
 
-func (u *Usage) ListServiceId(name string) (response.Response, error) {
+func (u *Usage) ListServiceId(name string) ([]string, error) {
 	resp, err := u.client.Send("heartbeat", command.Body{"action": "listService", "name": name})
 	if err != nil {
 		logger.Error(fmt.Sprintf("List Specific for %s failed with: %s", name, err.Error()))
-		return nil, fmt.Errorf("calling heartbeat listService send failed with: %s", err)
+		return nil, fmt.Errorf("calling heartbeat listService send failed with: %w", err)
 	}
 
-	return resp, nil
+	ret, err := maps.StringArray(resp, "ids")
+	if err != nil {
+		return nil, fmt.Errorf("calling heartbeat listService failed with: %w", err)
+	}
+
+	return ret, nil
 }

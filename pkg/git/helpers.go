@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v71/github"
 	"golang.org/x/oauth2"
 )
 
@@ -72,6 +72,19 @@ func injectDeploymentKey(ctx context.Context, client *github.Client, user, repoN
 		Key:   &key,
 	})
 	return err
+}
+
+// convertSSHToHTTPS converts SSH URLs to HTTPS URLs for public access
+func ConvertSSHToHTTPS(url string) string {
+	if strings.HasPrefix(url, "git@") && strings.Contains(url, ":") {
+		parts := strings.SplitN(url, ":", 2)
+		if len(parts) == 2 {
+			host := strings.TrimPrefix(parts[0], "git@")
+			path := strings.TrimSuffix(parts[1], ".git")
+			return fmt.Sprintf("https://%s/%s.git", host, path)
+		}
+	}
+	return url
 }
 
 // TODO support other git providers

@@ -2,45 +2,44 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/ipfs/go-log/v2"
 	"github.com/taubyte/tau/p2p/peer"
 	client "github.com/taubyte/tau/p2p/streams/client"
 	"github.com/taubyte/tau/p2p/streams/command"
-	dirs "github.com/taubyte/utils/fs/dir"
-	maps "github.com/taubyte/utils/maps"
+	maps "github.com/taubyte/tau/utils/maps"
+	"golang.org/x/crypto/acme/autocert"
 
 	protocolCommon "github.com/taubyte/tau/services/common"
 )
 
 var logger = log.Logger("tau.auth.acme.store")
+var certFileRegexp = regexp.MustCompile(`(\+token|\+rsa|\+key|\.key)$`)
 
-// Store implements Store and Cache using taubyte acme service
-// NOTE: Must periodically chewck the validity of the certificate by a go-routine. If
-//
-//	the certififcate is not valid restart the service after a random sleep.
 type Store struct {
-	node         peer.Node
-	client       *client.Client
-	cacheDir     dirs.Directory
-	errCacheMiss error
+	node     peer.Node
+	client   client.SendOnlyClient
+	cacheDir autocert.DirCache
+	closed   bool
+	mu       sync.Mutex
 }
 
-func New(ctx context.Context, node peer.Node, cacheDir string, errCacheMiss error) (*Store, error) {
+func New(ctx context.Context, node peer.Node, cacheDir string) (*Store, error) {
 	var (
 		c   Store
 		err error
 	)
 
-	logger.Debug("ACME Distributed Store Creation...")
 	c.node = node
-	c.cacheDir, err = dirs.New(cacheDir)
-	if err != nil {
-		return nil, err
-	}
+	c.cacheDir = autocert.DirCache(cacheDir)
 
-	c.errCacheMiss = errCacheMiss
+	logger.Debugf("ACME Distributed Store Creation... (node: %s, cacheDir: %s)", node.ID().ShortString(), cacheDir)
+
 	c.client, err = client.New(node, protocolCommon.AuthProtocol)
 	if err != nil {
 		logger.Error("ACME Store creation failed:", err.Error())
@@ -53,29 +52,79 @@ func New(ctx context.Context, node peer.Node, cacheDir string, errCacheMiss erro
 
 // Get reads a certificate data from the specified file name.
 func (d *Store) Get(ctx context.Context, name string) ([]byte, error) {
-	logger.Debugf("Getting `%s`", name)
-	defer logger.Debugf("Getting `%s` done", name)
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return nil, errors.New("store is closed")
+	}
+	d.mu.Unlock()
 
+	isCert := !certFileRegexp.MatchString(name)
+	wildcardName := "*." + strings.Join(strings.Split(name, ".")[1:], ".")
+
+	logger.Debugf("Get called with name: %s (isCert: %v)", name, isCert)
+
+	pem, err := d.cacheDir.Get(ctx, name)
+	if err == nil {
+		return pem, nil
+	} else {
+		if isCert {
+			pem, err = d.cacheDir.Get(ctx, wildcardName)
+			if err == nil {
+				return pem, nil
+			}
+		}
+	}
+
+	pem, err = d.getDynamicCertificate(name, isCert)
+	if err != nil {
+		logger.Debugf("Error getting dynamic certificate for `%s`: %s", name, err.Error())
+		if !isCert {
+			if err.Error() == autocert.ErrCacheMiss.Error() {
+				logger.Debugf("Cache miss for `%s` returning ErrCacheMiss", name)
+				return nil, autocert.ErrCacheMiss
+			}
+			logger.Debugf("Getting `%s` failed: %w", name, err)
+			return nil, err
+		}
+
+		pem, err = d.getDynamicCertificate(wildcardName, true)
+		if err != nil {
+			logger.Debugf("Error getting dynamic certificate for `%s`: %s", wildcardName, err.Error())
+			pem, err = d.getStaticCertificate(name)
+			if err != nil {
+				logger.Debugf("Error getting static certificate for `%s`: %s", name, err.Error())
+				pem, err = d.getStaticCertificate(wildcardName)
+				if err != nil {
+					logger.Debugf("Not found in acme cache... trying to get a static certificate for `%s` failed: %s", name, err.Error())
+					return nil, autocert.ErrCacheMiss
+				}
+			}
+		}
+	}
+
+	logger.Debugf("Caching locally `%s`", name)
+	d.cacheDir.Put(ctx, name, pem)
+
+	return pem, nil
+}
+
+func (d *Store) getDynamicCertificate(name string, isCert bool) ([]byte, error) {
 	var (
 		body    *command.Body
 		dataKey string
 	)
 
-	if strings.HasSuffix(name, "+token") || strings.HasSuffix(name, "+rsa") || strings.HasSuffix(name, "+key") || strings.HasSuffix(name, ".key") {
-		body = &command.Body{"action": "cache-get", "key": name}
-		dataKey = "data"
-	} else {
+	if isCert {
 		body = &command.Body{"action": "get", "fqdn": name}
 		dataKey = "certificate"
+	} else {
+		body = &command.Body{"action": "cache-get", "key": name}
+		dataKey = "data"
 	}
 
 	res, err := d.client.Send("acme", *body)
 	if err != nil {
-		if d.errCacheMiss != nil && err.Error() == d.errCacheMiss.Error() {
-			logger.Debugf("Cache miss for `%s` returning ErrCacheMiss", name)
-			return nil, d.errCacheMiss
-		}
-		logger.Errorf("Getting `%s` failed: %s", name, err.Error())
 		return nil, err
 	}
 
@@ -85,48 +134,78 @@ func (d *Store) Get(ctx context.Context, name string) ([]byte, error) {
 		return nil, err
 	}
 
-	logger.Debugf("Getting `%s` = %v", name, pem)
-
 	return pem, nil
+}
+
+func (d *Store) getStaticCertificate(name string) ([]byte, error) {
+	var err error
+
+	resp, err := d.client.Send("acme", command.Body{"action": "get-static", "fqdn": name})
+	if err != nil {
+		return nil, fmt.Errorf("failed get certificate for %s with %v", name, err)
+	}
+
+	certData, err := maps.ByteArray(resp, "certificate")
+	if err != nil {
+		return nil, fmt.Errorf("failed finding certificate with %v", err)
+	}
+
+	return certData, nil
 }
 
 // Put writes the certificate data to the specified file name.
 // The file will be created with 0600 permissions.
 func (d *Store) Put(ctx context.Context, name string, data []byte) error {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return errors.New("store is closed")
+	}
+	d.mu.Unlock()
+
 	logger.Debugf("Storing `%s`", name)
 	defer logger.Debugf("Storing `%s` done", name)
 
 	var body *command.Body
 
-	if strings.HasSuffix(name, "+token") || strings.HasSuffix(name, "+rsa") || strings.HasSuffix(name, "+key") || strings.HasSuffix(name, ".key") {
-		body = &command.Body{"action": "cache-set", "key": name, "data": data}
-	} else {
+	if !certFileRegexp.MatchString(name) {
 		body = &command.Body{"action": "set", "fqdn": name, "certificate": data}
+	} else {
+		body = &command.Body{"action": "cache-set", "key": name, "data": data}
 	}
 
-	// write file to DB by sending command
 	_, err := d.client.Send("acme", *body)
 	if err != nil {
 		logger.Errorf("Storing `%s` error: %s", name, err.Error())
+		return err
 	}
-	return err
+
+	d.cacheDir.Put(ctx, name, data)
+
+	return nil
 }
 
 // Delete removes the specified certificate or tokens (cached data).
 func (d *Store) Delete(ctx context.Context, name string) error {
 	logger.Debugf("Deleting `%s`", name)
 	defer logger.Debugf("Deleting `%s` done", name)
-	// client can not delete
-	// certificate life cycle is handled by the Auth peers
 
-	// token or any cached data can be deleted
-	if strings.HasSuffix(name, "+token") || strings.HasSuffix(name, "+rsa") || strings.HasSuffix(name, "+key") || strings.HasSuffix(name, ".key") {
+	if !certFileRegexp.MatchString(name) {
+		defer d.cacheDir.Delete(ctx, name)
+
 		_, err := d.client.Send("acme", command.Body{"action": "cache-delete", "key": name})
 		if err != nil {
 			logger.Errorf("Deleting `%s` error: %s", name, err.Error())
+			return err
 		}
-		return err
 	}
 
+	return nil
+}
+
+func (d *Store) Close() error {
+	d.mu.Lock()
+	d.closed = true
+	d.mu.Unlock()
 	return nil
 }

@@ -5,8 +5,8 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	client "github.com/taubyte/tau/clients/http/dream"
+	"github.com/taubyte/tau/dream"
 	"github.com/taubyte/tau/tools/dream/cli/command"
-	"github.com/taubyte/tau/tools/dream/cli/common"
 	"github.com/urfave/cli/v2"
 )
 
@@ -16,14 +16,14 @@ func universe(multiverse *client.Client) *cli.Command {
 		Aliases: []string{"u"},
 		Action:  universeStatus(multiverse),
 	}
-	command.NameWithDefault(c, common.DefaultUniverseName)
+	command.NameWithDefault(c, dream.DefaultUniverseName)
 
 	return c
 }
 
 func universeStatus(multiverse *client.Client) cli.ActionFunc {
 	return func(c *cli.Context) (err error) {
-		chart, err := multiverse.Universe(c.String("name")).Status()
+		chart, err := multiverse.Universe(c.String("name")).Chart()
 		if err != nil {
 			return
 		}

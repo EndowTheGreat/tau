@@ -4,7 +4,6 @@ package tests
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -18,17 +17,14 @@ import (
 	peer "github.com/taubyte/tau/p2p/peer"
 	"github.com/taubyte/tau/services/common"
 	service "github.com/taubyte/tau/services/hoarder"
+
+	_ "github.com/taubyte/tau/clients/p2p/hoarder/dream"
 )
 
 func TestHoarderClient(t *testing.T) {
 	ctx := context.Background()
 
-	srvRoot, err := os.MkdirTemp("/tmp", "clientSrvRoot")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer os.RemoveAll(srvRoot)
+	srvRoot := t.TempDir()
 
 	srv, err := service.New(ctx, &config.Node{
 		Root:        srvRoot,

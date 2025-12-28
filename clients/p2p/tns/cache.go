@@ -36,15 +36,25 @@ func (c *cache) put(key tns.Path, value interface{}) {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.data[key.String()] = value
+	if c.data != nil {
+		c.data[key.String()] = value
+	}
 }
 
 func (c *cache) listen(key tns.Path) (*subscription, error) {
 	topic := common.GetChannelFor(key.Slice()...)
 
+	var (
+		sub *subscription
+		ok  bool
+	)
+
 	c.lock.RLock()
-	sub, ok := c.subscriptions[topic]
+	if c.subscriptions != nil {
+		sub, ok = c.subscriptions[topic]
+	}
 	c.lock.RUnlock()
+
 	if ok {
 		sub.key <- key.String()
 		return sub, nil
@@ -71,7 +81,9 @@ func (c *cache) listen(key tns.Path) (*subscription, error) {
 	}
 
 	c.lock.Lock()
-	c.subscriptions[topic] = sub
+	if c.subscriptions != nil {
+		c.subscriptions[topic] = sub
+	}
 	c.lock.Unlock()
 
 	sub.key <- key.String()
@@ -85,11 +97,16 @@ func (sub *subscription) watch() {
 	go func() {
 		for {
 			select {
+			case <-sub.ctx.Done():
+				sub.close()
+				return
 			case k := <-sub.key:
 				if k == "" {
 					for _, k := range sub.keys {
 						sub.cache.lock.Lock()
-						delete(sub.cache.data, k)
+						if sub.cache.data != nil {
+							delete(sub.cache.data, k)
+						}
 						sub.cache.lock.Unlock()
 					}
 					sub.keys = make([]string, 0) // TODO: maybe use reflect to just adjust the size so we don't have to reallocate
@@ -101,9 +118,6 @@ func (sub *subscription) watch() {
 					sub.close()
 					return
 				}
-			case <-sub.ctx.Done():
-				sub.close()
-				return
 			}
 		}
 	}()
@@ -112,9 +126,13 @@ func (sub *subscription) watch() {
 func (sub *subscription) close() {
 	sub.ctxC()
 	sub.cache.lock.Lock()
-	delete(sub.cache.subscriptions, sub.topic)
-	for _, k := range sub.keys {
-		delete(sub.cache.data, k)
+	if sub.cache.subscriptions != nil {
+		delete(sub.cache.subscriptions, sub.topic)
+	}
+	if sub.cache.data != nil {
+		for _, k := range sub.keys {
+			delete(sub.cache.data, k)
+		}
 	}
 	close(sub.key)
 	sub.keys = nil
@@ -123,12 +141,10 @@ func (sub *subscription) close() {
 
 func (c *cache) get(key tns.Path) (value interface{}) {
 	c.lock.RLock()
-	value, ok := c.data[key.String()]
-	c.lock.RUnlock()
-
-	if !ok {
-		return nil
+	if c.data != nil {
+		value = c.data[key.String()]
 	}
+	c.lock.RUnlock()
 
 	return value
 }

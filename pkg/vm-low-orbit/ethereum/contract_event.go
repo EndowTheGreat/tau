@@ -1,3 +1,6 @@
+//go:build web3
+// +build web3
+
 package ethereum
 
 import (
@@ -96,7 +99,7 @@ func (f *Factory) W_ethSubscribeContractEvent(
 	switch channelType {
 	case httpChannel:
 	case pubsubChannel:
-		if err := f.pubsubNode.Subscribe(f.parent.Context().Project(), f.parent.Context().Application(), channel); err != nil {
+		if err := f.pubsubNode.Subscribe(f.parent.Context().Project(), f.parent.Context().Application(), f.parent.Context().Resource(), channel); err != nil {
 			return errno.ErrorSubscribeFailed
 		}
 	default:
@@ -183,7 +186,7 @@ func publish(vmCtx vm.Context, ctx context.Context, pubsubNode pubsubIface.Servi
 		_, err = http.Post(channel, "application/json", bytes.NewBuffer(data))
 		return err
 	case pubsubChannel:
-		return pubsubNode.Publish(ctx, vmCtx.Project(), vmCtx.Application(), channel, data)
+		return pubsubNode.Publish(ctx, vmCtx.Project(), vmCtx.Application(), vmCtx.Resource(), channel, data)
 	default:
 		return errors.New("publishing method not implemented")
 	}
@@ -257,6 +260,11 @@ func handleLogChannels(vmCtx vm.Context, ctx context.Context, ttl int64 /*second
 
 	for {
 		select {
+		case <-logCtx.Done():
+			ce.watcher.lock.Lock()
+			delete(ce.watcher.published, channel)
+			ce.watcher.lock.Unlock()
+			return nil
 		case err := <-errChan:
 			if err != nil {
 				sub.Unsubscribe()
@@ -300,12 +308,6 @@ func handleLogChannels(vmCtx vm.Context, ctx context.Context, ttl int64 /*second
 					publish(vmCtx, ctx, pubsubNode, ce, channel, channelType, fmt.Errorf("publishing log failed with: %w", err), nil)
 				}
 			}
-
-		case <-logCtx.Done():
-			ce.watcher.lock.Lock()
-			delete(ce.watcher.published, channel)
-			ce.watcher.lock.Unlock()
-			return nil
 		}
 	}
 }

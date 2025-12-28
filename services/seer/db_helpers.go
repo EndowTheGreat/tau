@@ -4,13 +4,20 @@ import (
 	"context"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"github.com/libp2p/go-libp2p/core/peer"
 	iface "github.com/taubyte/tau/core/services/seer"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
-func (h *dnsHandler) getServiceIp(ctx context.Context, proto string) ([]string, error) {
+func (h *dnsHandler) getServiceIpWithCache(ctx context.Context, proto string, filter func(string, int64, *iface.UsageData) bool) ([]string, error) {
+	it := h.serverIPCache.Get(proto)
+	if it != nil && len(it.Value()) > 0 {
+		return it.Value(), nil
+	}
+
 	result, err := h.seer.ds.Query(
 		ctx, query.Query{
 			Prefix: datastore.NewKey("/node/meta").ChildString(proto).String(),
@@ -25,18 +32,80 @@ func (h *dnsHandler) getServiceIp(ctx context.Context, proto string) ([]string, 
 		key := datastore.NewKey(entry.Key)
 		if key.Name() == "IP" {
 			id := key.Path().Name()
+			ip := string(entry.Value)
 			tsBytes, err := h.seer.ds.Get(ctx, datastore.NewKey("/hb/ts").Instance(id))
 			if err != nil {
 				continue
 			}
 
-			if bytesToInt64(tsBytes) >= time.Now().UnixNano()-ValidServiceResponseTime.Nanoseconds() {
-				unique[string(entry.Value)] = nil
+			ts := bytesToInt64(tsBytes)
+			if ts < time.Now().UnixNano()-ValidServiceResponseTime.Nanoseconds() {
+				continue
 			}
+
+			usageBytes, err := h.seer.ds.Get(ctx, datastore.NewKey("/hb/usage").Instance(id))
+			if err != nil {
+				continue
+			}
+
+			usage := iface.UsageData{}
+			err = cbor.Unmarshal(usageBytes, &usage)
+			if err != nil {
+				continue
+			}
+
+			if filter != nil && !filter(id, ts, &usage) {
+				continue
+			}
+
+			unique[ip] = nil
+
 		}
 	}
 
-	return maps.Keys(unique), nil
+	ips := maps.Keys(unique)
+	h.serverIPCache.Set(proto, ips, ServerIpCacheTTL)
+
+	return ips, nil
+}
+
+func (h *dnsHandler) getServiceMultiAddr(ctx context.Context, proto string) ([]string, error) {
+	result, err := h.seer.ds.Query(
+		ctx, query.Query{
+			Prefix: datastore.NewKey("/node/meta").ChildString(proto).String(),
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	unique := make(map[string]struct{}, 0)
+
+	for entry := range result.Next() {
+		key := datastore.NewKey(entry.Key)
+		id := key.Path().Name()
+		tsBytes, err := h.seer.ds.Get(ctx, datastore.NewKey("/hb/ts").Instance(id))
+		if err != nil {
+			continue
+		}
+
+		if bytesToInt64(tsBytes) >= time.Now().UnixNano()-ValidServiceResponseTime.Nanoseconds() {
+			unique[id] = struct{}{}
+		}
+	}
+
+	multiaddrs := make([]string, 0, len(unique))
+	for pid := range unique {
+		peerID, err := peer.Decode(pid)
+		if err != nil {
+			continue
+		}
+		maddrs := h.seer.node.Peer().Peerstore().Addrs(peerID)
+		for _, maddr := range maddrs {
+			multiaddrs = append(multiaddrs, maddr.String()+"/p2p/"+pid)
+		}
+	}
+
+	return multiaddrs, nil
 }
 
 func (srv *oracleService) insertHandler(ctx context.Context, id string, services iface.Services) ([]string, error) {

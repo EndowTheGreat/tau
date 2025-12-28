@@ -10,16 +10,20 @@ import (
 	"github.com/taubyte/tau/p2p/peer"
 	streams "github.com/taubyte/tau/p2p/streams/service"
 
-	http "github.com/taubyte/http"
 	"github.com/taubyte/tau/config"
 	tnsClient "github.com/taubyte/tau/core/services/tns"
+	http "github.com/taubyte/tau/pkg/http"
+	"github.com/taubyte/tau/pkg/poe"
 
 	"github.com/ipfs/go-datastore"
 )
 
 var (
-	DefaultBlockTime         = 60 * time.Second
-	ValidServiceResponseTime = 5 * time.Minute
+	MaxDnsResponseTime       = 3 * time.Second
+	ServerIpCacheTTL         = 30 * time.Second
+	PositiveCacheTTL         = 1 * time.Minute
+	DefaultBlockTime         = 1 * time.Minute
+	ValidServiceResponseTime = 1 * time.Minute
 )
 
 type dnsServer struct {
@@ -49,7 +53,7 @@ type geoService struct {
 type Service struct {
 	node          peer.Node
 	http          http.Service
-	stream        *streams.CommandService
+	stream        streams.CommandService
 	geo           *geoService
 	oracle        *oracleService
 	dns           *dnsServer
@@ -63,10 +67,11 @@ type Service struct {
 	tns         tnsClient.Client
 	dnsResolver iface.Resolver
 
+	poe poe.Engine
+
 	hostUrl string
 
 	shape   string
-	odo     bool
 	devMode bool
 }
 

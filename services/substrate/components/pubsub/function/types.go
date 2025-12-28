@@ -2,6 +2,7 @@ package function
 
 import (
 	"context"
+	"sync"
 
 	commonIface "github.com/taubyte/tau/core/services/substrate/components"
 	iface "github.com/taubyte/tau/core/services/substrate/components/pubsub"
@@ -19,6 +20,7 @@ type Function struct {
 
 	matcher *common.MatchDefinition
 	commit  string
+	branch  string
 
 	assetId string
 
@@ -32,9 +34,20 @@ type Function struct {
 	instanceCtx  context.Context
 	instanceCtxC context.CancelFunc
 
+	closeOnce sync.Once
+
 	*runtime.Function
 }
 
 func (f *Function) Close() {
-	f.instanceCtxC()
+	f.closeOnce.Do(func() {
+		f.close()
+	})
+}
+
+func (f *Function) close() {
+	go func() {
+		f.Shutdown()
+		f.instanceCtxC()
+	}()
 }

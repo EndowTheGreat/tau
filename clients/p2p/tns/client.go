@@ -2,19 +2,20 @@ package tns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/taubyte/tau/clients/p2p/tns/common"
 	"github.com/taubyte/tau/core/services/tns"
 	"github.com/taubyte/tau/p2p/peer"
 	"github.com/taubyte/tau/p2p/streams/client"
 	"github.com/taubyte/tau/p2p/streams/command"
+	"github.com/taubyte/tau/utils/mapstructure"
 
 	spec "github.com/taubyte/tau/pkg/specs/common"
 	"github.com/taubyte/tau/pkg/specs/extract"
 	"github.com/taubyte/tau/pkg/specs/methods"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 
 	srvCommon "github.com/taubyte/tau/services/common"
 )
@@ -43,16 +44,40 @@ func (c *Client) Close() {
 }
 
 /****** LIST *******/
-func (c *Client) List(depth int) ([]string, error) {
+func (c *Client) List(depth int) ([][]string, error) {
 	response, err := c.client.Send("list", command.Body{"depth": depth}, c.peers...)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	keys, err := maps.StringArray(response, "keys")
-	if err != nil {
-		return nil, fmt.Errorf("failed string array in list with error: %v", err)
+	keysIface, ok := response["keys"]
+	if !ok {
+		return nil, errors.New("no keys found")
+	}
+
+	// TODO: Use generics so streams client Do() can unmarshal directly to needed type
+	keysCont, ok := keysIface.([]any)
+	if !ok {
+		return nil, errors.New("returned keys have wrong type")
+	}
+
+	keys := make([][]string, 0, len(keysCont))
+	for _, k := range keysCont {
+		kc, ok := k.([]any)
+		if !ok {
+			return nil, errors.New("returned key have wrong type")
+		}
+
+		key := make([]string, 0, len(kc))
+		for _, vc := range kc {
+			v, ok := vc.(string)
+			if !ok {
+				return nil, errors.New("returned leaf have wrong type")
+			}
+			key = append(key, v)
+		}
+		keys = append(keys, key)
 	}
 
 	return keys, nil
@@ -71,7 +96,7 @@ func (c *Client) Fetch(path tns.Path) (tns.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		c.cache.put(path, object)
+		c.cache.put(path, object) // this will start a go func to watch FIX
 	}
 
 	return &responseObject{
@@ -147,13 +172,27 @@ func (c *Client) lookup(query tns.Query) ([]string, error) {
 }
 
 // Use for indexed object links
-func (r *responseObject) Current(branch string) ([]tns.Path, error) {
-	// Grab Interface and convert to list
+func (r *responseObject) Current(branches []string) (paths []tns.Path, err error) {
 	ifaceList, ok := r.Interface().([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("cannot convert paths iface `%v` to []interface{}", r.Interface())
 	}
 
+	for _, branch := range branches {
+		paths, err = r.current(ifaceList, branch)
+		if err == nil && len(paths) != 0 {
+			break
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no paths returned from current for branches %s", branches)
+	}
+
+	return
+}
+
+func (r *responseObject) current(ifaceList []interface{}, branch string) ([]tns.Path, error) {
 	paths := make([]tns.Path, 0)
 	var projectId string
 	var commit string
@@ -190,10 +229,6 @@ func (r *responseObject) Current(branch string) ([]tns.Path, error) {
 		}
 
 		paths = append(paths, currentPath)
-	}
-
-	if len(paths) < 1 {
-		return nil, fmt.Errorf("no paths returned from current for branch %s", branch)
 	}
 
 	return paths, nil

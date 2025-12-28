@@ -9,13 +9,13 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/h2non/filetype/matchers"
 	"github.com/spf13/afero"
-	http "github.com/taubyte/http"
 	"github.com/taubyte/tau/pkg/config-compiler/decompile"
+	http "github.com/taubyte/tau/pkg/http"
 	"github.com/taubyte/tau/pkg/schema/pretty"
 	projectSchema "github.com/taubyte/tau/pkg/schema/project"
 	commonSpec "github.com/taubyte/tau/pkg/specs/common"
 
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
 //FIXME: this is temporary here, should move to gw node (we will create at some point morty)
@@ -23,9 +23,9 @@ import (
 var _ pretty.Prettier = &safeEngine{}
 
 type safeEngine struct {
-	srv     *Service
-	project string
-	branch  string
+	srv      *Service
+	project  string
+	branches []string
 }
 
 func (e *safeEngine) Fetch(path *commonSpec.TnsPath) (pretty.Object, error) {
@@ -36,8 +36,8 @@ func (e *safeEngine) Project() string {
 	return e.project
 }
 
-func (e *safeEngine) Branch() string {
-	return e.branch
+func (e *safeEngine) Branches() []string {
+	return e.branches
 }
 
 func (srv *Service) getProjectFromContext(ctx http.Context) (projectSchema.Project, error) {
@@ -46,7 +46,7 @@ func (srv *Service) getProjectFromContext(ctx http.Context) (projectSchema.Proje
 		return nil, err
 	}
 
-	projectObj, err := srv.tns.Simple().Project(projectId, commonSpec.DefaultBranch)
+	projectObj, err := srv.tns.Simple().Project(projectId, commonSpec.DefaultBranches...)
 	if err != nil {
 		return nil, fmt.Errorf("fetching project object failed: %w, %s", err, "Retry this job")
 	}
@@ -71,9 +71,9 @@ func (srv *Service) projectConfigHandler(ctx http.Context) (interface{}, error) 
 	}
 
 	engine := &safeEngine{
-		srv:     srv,
-		project: projectIface.Get().Id(),
-		branch:  commonSpec.DefaultBranch,
+		srv:      srv,
+		project:  projectIface.Get().Id(),
+		branches: commonSpec.DefaultBranches,
 	}
 	prettyObj := projectIface.Prettify(engine)
 

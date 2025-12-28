@@ -6,14 +6,21 @@ import (
 	commonIface "github.com/taubyte/tau/core/common"
 	iface "github.com/taubyte/tau/core/services/seer"
 	"github.com/taubyte/tau/dream"
-	_ "github.com/taubyte/tau/services/seer"
+	_ "github.com/taubyte/tau/services/seer/dream"
 	"gotest.tools/v3/assert"
+
+	_ "github.com/taubyte/tau/clients/p2p/seer/dream"
 )
 
 func TestSeerClient(t *testing.T) {
-	u := dream.New(dream.UniverseConfig{Name: t.Name()})
-	defer u.Stop()
-	err := u.StartWithConfig(&dream.Config{
+	m, err := dream.New(t.Context())
+	assert.NilError(t, err)
+	defer m.Close()
+
+	u, err := m.New(dream.UniverseConfig{Name: t.Name()})
+	assert.NilError(t, err)
+
+	err = u.StartWithConfig(&dream.Config{
 		Services: map[string]commonIface.ServiceConfig{
 			"seer": {Others: map[string]int{"dns": 8988}},
 		},
@@ -30,25 +37,17 @@ func TestSeerClient(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	simple, err := u.Simple("client")
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	assert.NilError(t, err)
 
 	// Error reporting no peers providing but we are checking if its 0 so just not returning
 	seer, err := simple.Seer()
 	assert.NilError(t, err)
 
 	resp, err := seer.Geo().All()
-	if err != nil {
-		t.Error("Seer geo all err: ", err)
-	}
+	assert.NilError(t, err)
 
 	if len(resp) != 0 {
 		t.Error("Should return empty! returned:", resp)
@@ -60,18 +59,12 @@ func TestSeerClient(t *testing.T) {
 	// location of office in 12100 Ford Rd
 	fake_location := iface.Location{Latitude: 32.91264411258042, Longitude: -96.8907727708027}
 	err = seer.Geo().Set(fake_location)
-	if err != nil {
-		t.Error("Geo set: ", err)
-		return
-	}
+	assert.NilError(t, err)
 
 	/***** ALL *****/
 
 	resp, err = seer.Geo().All()
-	if err != nil {
-		t.Error("Returned Error ", err)
-		return
-	}
+	assert.NilError(t, err)
 
 	found_match := false
 	for _, p := range resp {
@@ -92,15 +85,8 @@ func TestSeerClient(t *testing.T) {
 	fake_now_location := iface.Location{Latitude: 32.900211956131386, Longitude: -97.04029425876429}
 
 	_, err = seer.Geo().Distance(fake_now_location, 15*1000)
-	if err != nil {
-		t.Error("Returned Error ", err)
-		return
-	}
+	assert.NilError(t, err)
 
 	_, err = seer.Geo().Distance(fake_now_location, 5*1000)
-	if err != nil {
-		t.Error("Returned Error ", err)
-		return
-	}
-
+	assert.NilError(t, err)
 }

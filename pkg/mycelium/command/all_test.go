@@ -8,26 +8,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/taubyte/tau/pkg/mycelium/command/mocks"
+	"gotest.tools/v3/assert"
 )
 
 func TestNewCommand(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 
 	mockSession.On("Setenv", mock.Anything, mock.Anything).Return(nil).Once()
 	_, err := New(ctx, mockSession, "ls", Env("fake", "var"))
-	assert.Nil(t, err, "Expected no error")
+	assert.NilError(t, err)
 
 	mockSession.On("Setenv", mock.Anything, mock.Anything).Return(errors.New("failed to set env")).Once()
 	_, err = New(ctx, mockSession, "ls", Env("fake", "var"))
-	assert.Error(t, err, "Expected an error from setting environment variable")
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandRun(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 
 	mockSession.On("Setenv", mock.Anything, mock.Anything).Return(nil).Once()
@@ -36,15 +38,15 @@ func TestCommandRun(t *testing.T) {
 	mockSession.On("Run", mock.Anything).Return(nil).Once()
 	mockSession.On("Close").Return(nil).Twice() // Expect Close to be called twice
 	err := cmd.Run()
-	assert.Nil(t, err, "Expected no error when running command")
+	assert.NilError(t, err)
 
 	mockSession.On("Run", mock.Anything).Return(errors.New("command failed")).Once()
 	err = cmd.Run()
-	assert.Error(t, err, "Expected an error when command fails")
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandCombinedOutput(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "ls")
 
@@ -52,45 +54,45 @@ func TestCommandCombinedOutput(t *testing.T) {
 	mockSession.On("CombinedOutput", mock.Anything).Return(output, nil).Once()
 	mockSession.On("Close").Return(nil).Once() // Set expectation for Close method here
 	data, err := cmd.CombinedOutput()
-	assert.Nil(t, err, "Expected no error from CombinedOutput")
-	assert.Equal(t, output, data, "Expected output to match mock output")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, output, data)
 
 	mockSession.On("CombinedOutput", mock.Anything).Return(nil, errors.New("command failed")).Once()
 	mockSession.On("Close").Return(nil).Once() // Expect Close to be called on error as well
 	_, err = cmd.CombinedOutput()
-	assert.Error(t, err, "Expected an error from CombinedOutput")
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandPipes(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "ls")
 
-	mockWriteCloser := new(mockWriteCloser)
+	mockWriteCloser := new(mocks.WriteCloser)
 	mockWriteCloser.On("Write", mock.Anything).Return(0, nil)
 	mockWriteCloser.On("Close").Return(nil)
 
 	mockSession.On("StdoutPipe").Return(io.NopCloser(nil), nil).Once()
 	mockSession.On("Close").Return(nil).Once()
 	stdout, err := cmd.StdoutPipe()
-	assert.Nil(t, err, "Expected no error from StdoutPipe")
-	assert.NotNil(t, stdout, "Expected stdout not to be nil")
+	assert.NilError(t, err)
+	assert.Equal(t, stdout != nil, true)
 
 	mockSession.On("StderrPipe").Return(io.NopCloser(nil), nil).Once()
 	mockSession.On("Close").Return(nil).Once()
 	stderr, err := cmd.StderrPipe()
-	assert.Nil(t, err, "Expected no error from StderrPipe")
-	assert.NotNil(t, stderr, "Expected stderr not to be nil")
+	assert.NilError(t, err)
+	assert.Equal(t, stderr != nil, true)
 
 	mockSession.On("StdinPipe").Return(mockWriteCloser, nil).Once()
 	mockSession.On("Close").Return(nil).Once()
 	stdin, err := cmd.StdinPipe()
-	assert.Nil(t, err, "Expected no error from StdinPipe")
-	assert.NotNil(t, stdin, "Expected stdin not to be nil")
+	assert.NilError(t, err)
+	assert.Equal(t, stdin != nil, true)
 }
 
 func TestCommandSessionClosed(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "ls")
 
@@ -98,15 +100,15 @@ func TestCommandSessionClosed(t *testing.T) {
 
 	mockSession.On("Run", mock.Anything).Return(errors.New("session closed")).Once()
 	err := cmd.Run()
-	assert.Error(t, err, "Expected error when running with closed session")
+	assert.Assert(t, err != nil)
 
 	mockSession.On("Start", mock.Anything).Return(errors.New("session closed")).Once()
 	err = cmd.Start()
-	assert.Error(t, err, "Expected error when starting with closed session")
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandsessionWrap(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "ls")
 
@@ -115,11 +117,11 @@ func TestCommandsessionWrap(t *testing.T) {
 	err := cmd.sessionWrap(func() error {
 		return cmd.sess.Run("failing command")
 	})
-	assert.Error(t, err, "Expected an error from sessionWrap")
-	assert.Contains(t, err.Error(), "command failed", "Error should propagate from Run")
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "command failed", "Error should propagate from Run")
 }
 func TestCommandContextTimeout(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -135,12 +137,12 @@ func TestCommandContextTimeout(t *testing.T) {
 	if err == nil {
 		t.Error("Expected an error due to context timeout, but got nil")
 	} else {
-		assert.Contains(t, err.Error(), "context deadline exceeded", "Expected a timeout error")
+		assert.ErrorContains(t, err, "context deadline exceeded", "Expected a timeout error")
 	}
 }
 
 func TestCommandStartAndWait(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 
 	mockSession.On("Start", mock.Anything).Return(nil).Once()
@@ -149,14 +151,14 @@ func TestCommandStartAndWait(t *testing.T) {
 
 	cmd, _ := New(ctx, mockSession, "long-running-process")
 	err := cmd.Start()
-	assert.Nil(t, err, "Failed to start the command")
+	assert.NilError(t, err)
 
 	err = cmd.Wait()
-	assert.Nil(t, err, "Failed to wait for the command to finish")
+	assert.NilError(t, err)
 }
 
 func TestCommandPipeStdout(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "pipe-test")
 
@@ -164,12 +166,12 @@ func TestCommandPipeStdout(t *testing.T) {
 
 	mockSession.On("StdoutPipe").Return(dummyReader, nil).Once()
 	stdout, err := cmd.StdoutPipe()
-	assert.Nil(t, err)
+	assert.NilError(t, err)
 	assert.Equal(t, stdout, dummyReader)
 }
 
 func TestCommandPipeStderr(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "pipe-test")
 
@@ -177,12 +179,12 @@ func TestCommandPipeStderr(t *testing.T) {
 
 	mockSession.On("StderrPipe").Return(dummyReader, nil).Once()
 	stdout, err := cmd.StderrPipe()
-	assert.Nil(t, err)
+	assert.NilError(t, err)
 	assert.Equal(t, stdout, dummyReader)
 }
 
 func TestCommandSingleExecution(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 
 	cmd, _ := New(ctx, mockSession, "echo", Args("hello"))
@@ -190,15 +192,14 @@ func TestCommandSingleExecution(t *testing.T) {
 	mockSession.On("Run", mock.Anything).Return(nil).Once()
 	mockSession.On("Close").Return(nil).Once()
 	err := cmd.Run()
-	assert.Nil(t, err, "Expected no error on first run")
+	assert.NilError(t, err)
 
 	err = cmd.Run()
-	assert.Error(t, err, "Expected error on second run")
-	assert.Equal(t, "session closed", err.Error(), "Error should indicate command was already executed")
+	assert.ErrorContains(t, err, "session closed")
 }
 
 func TestCommandsessionWrapContextCancellation(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd, _ := New(ctx, mockSession, "ls")
 
@@ -214,12 +215,11 @@ func TestCommandsessionWrapContextCancellation(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // Simulate some work
 		return nil
 	})
-	assert.Error(t, err, "Expected context cancellation error")
-	assert.Contains(t, err.Error(), "context done", "Expected error to mention context being done")
+	assert.ErrorContains(t, err, "context done")
 }
 
 func TestCommandsessionWrapContextCancellationFailedInt(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd, _ := New(ctx, mockSession, "ls")
 
@@ -236,12 +236,11 @@ func TestCommandsessionWrapContextCancellationFailedInt(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // Simulate some work
 		return nil
 	})
-	assert.Error(t, err, "Expected context cancellation error")
-	assert.Contains(t, err.Error(), "context done", "Expected error to mention context being done")
+	assert.ErrorContains(t, err, "context done")
 }
 
 func TestCommandStartAndWaitErrorHandling(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "long-process")
 
@@ -249,50 +248,48 @@ func TestCommandStartAndWaitErrorHandling(t *testing.T) {
 	mockSession.On("Close").Return(nil).Once()
 
 	err := cmd.Start()
-	assert.Error(t, err, "Expected error on start failure")
+	assert.Assert(t, err != nil)
 
 	mockSession.On("Wait").Return(errors.New("wait failed")).Once()
 	err = cmd.Wait()
-	assert.Error(t, err, "Expected error on wait failure")
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandStdinPipesErrorHandling(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "pipe-test")
 
 	mockSession.On("StdinPipe").Return(nil, errors.New("stdin error")).Once()
 	stdin, err := cmd.StdinPipe()
-	assert.Nil(t, stdin, "stdin should be nil on error")
-	assert.Error(t, err, "Expected stdin pipe error")
+	assert.Equal(t, stdin, nil)
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandStdoutPipesErrorHandling(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "pipe-test")
 
 	mockSession.On("StdoutPipe").Return(nil, errors.New("stdin error")).Once()
 	stdin, err := cmd.StdoutPipe()
-	assert.Nil(t, stdin, "stdout should be nil on error")
-	assert.Error(t, err, "Expected stdin pipe error")
-
+	assert.Equal(t, stdin, nil)
+	assert.Assert(t, err != nil)
 }
 
 func TestCommandStderrPipesErrorHandling(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 	cmd, _ := New(ctx, mockSession, "pipe-test")
 
 	mockSession.On("StderrPipe").Return(nil, errors.New("stdin error")).Once()
 	stdin, err := cmd.StderrPipe()
-	assert.Nil(t, stdin, "stderr should be nil on error")
-	assert.Error(t, err, "Expected stdin pipe error")
-
+	assert.Equal(t, stdin, nil)
+	assert.Assert(t, err != nil)
 }
 
 func TestCommand_ArgumentsHandling(t *testing.T) {
-	mockSession := new(MockRemoteSession)
+	mockSession := new(mocks.RemoteSession)
 	ctx := context.Background()
 
 	args := []string{"a rg1", "arg2"}

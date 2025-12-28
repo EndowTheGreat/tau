@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,13 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ipfs/go-log/v2"
-	"github.com/taubyte/tau/core/builders"
 	"github.com/taubyte/tau/pkg/git"
 	specs "github.com/taubyte/tau/pkg/specs/common"
 	"github.com/taubyte/tau/pkg/specs/methods"
-	chidori "github.com/taubyte/utils/logger/zap"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
 func (c Context) storeLogFile(file *os.File) (string, error) {
@@ -26,9 +24,9 @@ func (c Context) storeLogFile(file *os.File) (string, error) {
 	} else {
 
 		if _, err = c.Monkey.Hoarder().Stash(cid); err != nil {
-			chidori.Format(logger, log.LevelError, "hoarding log cid `%s` of job `%s` failed with: %s", cid, c.Job.Id, err.Error())
+			logger.Error("hoarding log cid `%s` of job `%s` failed with: %s", cid, c.Job.Id, err.Error())
 		} else {
-			chidori.Format(logger, log.LevelInfo, "hoarded `%s`", cid)
+			logger.Info("hoarded `%s`", cid)
 		}
 	}
 
@@ -59,30 +57,6 @@ func (c Context) fetchConfigSshUrl() (sshString string, err error) {
 	return
 }
 
-// for singular resource repositories(not code repo), error should be nil, the monkey will be handling this logic
-func handleAsset(asset *builders.Output, logFile *os.File, err *error) {
-	if asset != nil {
-		_output := *asset
-		logs := _output.Logs()
-		if _, _err := logs.CopyTo(logFile); _err != nil {
-			_err = fmt.Errorf("copying build logs failed with: %w", _err)
-			if err != nil {
-				*err = fmt.Errorf("%s:%w", *err, _err)
-			} else {
-				*err = _err
-			}
-		}
-
-		if err != nil && *err != nil {
-			logFile.Seek(0, io.SeekEnd)
-			logFile.WriteString("\nMonkey Error:\n" + (*err).Error())
-		}
-
-		_output.Close()
-	}
-
-}
-
 func (c Context) getResourceRepositoryId() (id string, err error) {
 	gitRepoId := strconv.Itoa(c.Job.Meta.Repository.ID)
 	repoPath, err := methods.GetRepositoryPath(strings.ToLower(c.Job.Meta.Repository.Provider), gitRepoId, c.ProjectID)
@@ -107,6 +81,10 @@ func (c Context) getResourceRepositoryId() (id string, err error) {
 }
 
 func (c Context) handleCompressedBuild(id string, rsk io.ReadSeekCloser) error {
+	if rsk == nil {
+		return nil
+	}
+
 	cid, err := c.StashBuildFile(rsk)
 	if err != nil {
 		return fmt.Errorf("stashing build failed with: %s", err)
@@ -114,7 +92,7 @@ func (c Context) handleCompressedBuild(id string, rsk io.ReadSeekCloser) error {
 
 	c.Job.SetCid(id, cid)
 
-	assetKey, err := methods.GetTNSAssetPath(c.ProjectID, id, specs.DefaultBranch)
+	assetKey, err := methods.GetTNSAssetPath(c.ProjectID, id, c.Job.Meta.Repository.Branch)
 	if err != nil {
 		return err
 	}
@@ -128,46 +106,62 @@ func (c Context) handleCompressedBuild(id string, rsk io.ReadSeekCloser) error {
 	return err
 }
 
-func (c Context) handleLog(id string, logs *os.File) error {
-	logCid, err := c.storeLogFile(logs)
+func (c Context) handleLog() error {
+	logCid, err := c.storeLogFile(c.LogFile)
 	if err != nil {
 		return fmt.Errorf("storing log file for job `%s` failed with: %s", c.Job.Id, err)
 	}
 
-	c.Job.SetLog(id, logCid)
-	return nil
-}
-
-func (c Context) handleBuildDetails(id string, compressedBuild io.ReadSeekCloser, logs *os.File) error {
-	if logs != nil {
-		if err := c.handleLog(id, logs); err != nil {
-			return err
-		}
-	}
-
-	if compressedBuild != nil {
-		if err := c.handleCompressedBuild(id, compressedBuild); err != nil {
-			return err
-		}
-	}
-
+	c.Job.SetLog(time.Now().Format(time.RFC3339), logCid)
 	return nil
 }
 
 func (c *Context) cloneAndSet() error {
+	json.NewEncoder(c.LogFile).Encode(struct {
+		Op        string `json:"op"`
+		Url       string `json:"url"`
+		Branch    string `json:"branch"`
+		Timestamp int64  `json:"timestamp"`
+	}{
+		Op:        "git-clone",
+		Url:       c.Job.Meta.Repository.SSHURL,
+		Branch:    c.Job.Meta.Repository.Branch,
+		Timestamp: time.Now().UnixNano(),
+	})
 	repo, err := git.New(
 		c.ctx,
 		git.URL(c.Job.Meta.Repository.SSHURL),
 		git.SSHKey(c.DeployKey),
 		git.Temporary(),
 		git.Branch(c.Job.Meta.Repository.Branch),
-		// uncomment to keep directory
-		// git.Preserve(),
+		git.Output(c.LogFile),
 	)
 	if err != nil {
+		json.NewEncoder(c.LogFile).Encode(struct {
+			Op        string `json:"op"`
+			Status    string `json:"status"`
+			Timestamp int64  `json:"timestamp"`
+			Error     string `json:"error"`
+		}{
+			Op:        "git-clone",
+			Status:    "error",
+			Error:     err.Error(),
+			Timestamp: time.Now().UnixNano(),
+		})
 		return fmt.Errorf("new git repo failed with: %s", err)
 	}
 
 	c.gitDir, c.WorkDir = repo.Root(), repo.Dir()
+
+	json.NewEncoder(c.LogFile).Encode(struct {
+		Op        string `json:"op"`
+		Status    string `json:"status"`
+		Timestamp int64  `json:"timestamp"`
+	}{
+		Op:        "git-clone",
+		Status:    "success",
+		Timestamp: time.Now().UnixNano(),
+	})
+
 	return nil
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/taubyte/tau/p2p/streams/command"
 	cr "github.com/taubyte/tau/p2p/streams/command/response"
 	servicesCommon "github.com/taubyte/tau/services/common"
-	"github.com/taubyte/utils/maps"
+	"github.com/taubyte/tau/utils/maps"
 )
 
 func parseLocationFromBody(body command.Body, key string) (iface.Location, error) {
@@ -153,7 +153,7 @@ func (geo *geoService) getNodes(ctx context.Context, from iface.Location, distan
 	peers := make(map[string]iface.PeerLocation)
 	for entry := range result.Next() {
 		loc := iface.PeerLocation{}
-		err := cbor.Unmarshal(entry.Value, loc)
+		err := cbor.Unmarshal(entry.Value, &loc)
 		if err != nil {
 			continue
 		}
